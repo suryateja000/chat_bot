@@ -28,7 +28,7 @@ class QuestionRequest(BaseModel):
 
 def initialize_chatbot():
     global qa_chain, llm
-    google_api_key = os.getenv("GOOGLE_API_KEY")
+    google_api_key = "AIzaSyCliZoTatOYM6Y0DnzCjG_lJ50x57qyDYU"
     if not google_api_key:
         raise ValueError("GOOGLE_API_KEY environment variable is not set")
     
