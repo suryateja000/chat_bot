@@ -1,6 +1,7 @@
 import os
 from typing import List
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware  
 from pydantic import BaseModel
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.document_loaders import PyPDFLoader
@@ -11,6 +12,13 @@ from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"],  
+)
 
 qa_chain = None
 llm = None
@@ -20,9 +28,16 @@ class QuestionRequest(BaseModel):
 
 def initialize_chatbot():
     global qa_chain, llm
+    google_api_key = os.getenv("GOOGLE_API_KEY")
+    if not google_api_key:
+        raise ValueError("GOOGLE_API_KEY environment variable is not set")
     
-    os.environ["GOOGLE_API_KEY"] = "AIzaSyCliZoTatOYM6Y0DnzCjG_lJ50x57qyDYU"
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.1, max_tokens=300)
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-1.5-flash", 
+        temperature=0.1, 
+        max_tokens=300,
+        google_api_key=google_api_key
+    )
     loader = PyPDFLoader("teja.pdf")
     documents = loader.load()
     text_splitter = RecursiveCharacterTextSplitter(
@@ -37,18 +52,18 @@ def initialize_chatbot():
     prompt = PromptTemplate(
         template="""You are answering questions about Suryateja's profile. Use the provided context to answer the question accurately and comprehensively.
 
-INSTRUCTIONS:
-- Search through ALL the provided context carefully
-- Look for direct mentions, related terms, and implicit references
-- If you find relevant information, provide a complete answer
-- If the exact information isn't available but related information exists, mention what is available
-- Only say "Information not available" if there's truly no relevant information in the context
-
-Context: {context}
-
-Question: {question}
-
-Answer:""",
+        INSTRUCTIONS:
+        - Search through ALL the provided context carefully
+        - Look for direct mentions, related terms, and implicit references
+        - If you find relevant information, provide a complete answer
+        - If the exact information isn't available but related information exists, mention what is available
+        - Only say "Information not available" if there's truly no relevant information in the context
+        
+        Context: {context}
+        
+        Question: {question}
+        
+        Answer:""",
         input_variables=["context", "question"]
     )
     
@@ -95,21 +110,22 @@ remember the questions are also answered by chat bot, not by the user.
     
     return questions
 
+@app.on_event("startup")
+async def startup_event():
+    initialize_chatbot()
+
 @app.post("/chat")
 async def chat(request: QuestionRequest):
+    if qa_chain is None:
+        return {"error": "Chatbot not initialized"}
+    
     result = qa_chain.invoke({"query": request.question})
     answer = result["result"]
     
     context = " ".join([doc.page_content for doc in result["source_documents"][:4]])
-    
     questions = generate_questions(context, answer)
     
     return {"result": [answer] + questions}
-
-
-@app.on_event("startup")
-async def startup():
-    initialize_chatbot()
 
 @app.get("/")
 async def root():
